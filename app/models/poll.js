@@ -146,7 +146,7 @@ model.statics.getPollInfo = function (params = {}, options = {}) {
       isVoted: { $in: [ true, '$isVoted' ] },
       votes: 1,
       options: 1
-    }}
+    }},
   ])
 }
 
@@ -171,11 +171,71 @@ model.statics.getPostPolls = async function (params = {}) {
 //=========================================Новые методы============================================
 /**
   Статический метод модели, для аггрегации опросов в которых участвовал пользователь.
-  Переиспользует уже написанный метод, в который передаётся userId из запроса.
+  Я использовал часть уже написанного запроса и добавил туда $match по голосам перед $unwind,
+  чтобы получать только те Опросы, в которых участовал пользователь.
+  Можно было бы сделать просто match по userId в самом начале, так как такое поле есть в модели опроса,
+  но я думаю что если в голосовании участвует несколько пользователей, то лучше так не делать.
 */
-model.statics.getUserPolls = async function (params = {}) {
+
+model.statics.getUserPolls = async function (params = {}, options = {}) {
   const model = this;
-  let data = await model.getPollInfo({}, { userId: params.userId })
+  let data = await model.aggregate([
+    { $match: params },
+    {
+      $lookup: {
+        from: 'polloptions',
+        localField: '_id',
+        foreignField: 'pollId',
+        as: 'options'
+      }
+    },
+    {
+      $match: {
+        'options.enabled': true,
+        'options.votes': { $in: [options.userId ? parseInt(options.userId) : null, '$options.votes'] }
+      }
+    },
+    { $unwind: '$options' },
+    {
+      $project: {
+        _id: 1,
+        title: 1,
+        multi: 1,
+        target: 1,
+        options: {
+          _id: 1,
+          value: '$options.value',
+          votes: { $size: '$options.votes' },
+          isVoted: { $in: [options.userId ? parseInt(options.userId) : null, '$options.votes'] }
+        }
+      }
+    },
+    {
+      $group: {
+        _id: {
+          _id: '$_id',
+          title: '$title',
+          multi: '$multi',
+          target: '$target'
+        },
+        options: { $push: '$options' },
+        votes: { $sum: '$options.votes' },
+        isVoted: { $push: '$options.isVoted' }
+      }
+    },
+    {
+      $project: {
+        _id: '$_id._id',
+        title: '$_id.title',
+        multi: '$_id.multi',
+        target: '$_id.target',
+        isVoted: { $in: [true, '$isVoted'] },
+        votes: 1,
+        options: 1
+      }
+    },
+  ]);
+  
   return data.reduce((obj, item) => {
     obj[item.target.item] = item
     return obj

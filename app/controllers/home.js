@@ -61,7 +61,7 @@ exports.getUserPolls = async ctx => {
   const result = {}
 
   try {
-    const polls = await models.Poll.getUserPolls({userId});
+    const polls = await models.Poll.getUserPolls({},{userId});
     if (!polls) throw new Error('no poll found')
     result.polls = polls;
   } catch (e) {
